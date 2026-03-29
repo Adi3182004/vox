@@ -1,88 +1,103 @@
-const { Router } = require('express');
-const multer = require('multer');
-const path = require('path');
+const { Router } = require("express");
 const router = Router();
-const Blog = require('../models/blog');
-const Comment = require('../models/comments');
 
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, path.resolve(`./public/blogCoverImages/`));
-    },
-    filename: function (req, file, cb) {
-        const filename = `${Date.now()}-${file.originalname}`;
-        cb(null, filename);
-      }
+const Blog = require("../models/blog");
+const Comment = require("../models/comments");
+
+const upload = require("../middlewares/upload");
+const cloudinary = require("../config/cloudinary");
+
+// ADD BLOG PAGE
+router.get("/add-new", (req, res) => {
+  if (req.user) {
+    return res.render("addBlog", {
+      user: req.user,
     });
+  }
 
-    const upload = multer({ storage });
+  return res.redirect("/user/signin");
+});
 
-router.get('/add-new', (req, res) => {
-    if (req.user)  {
-        return res.render('addBlog', {
-            user : req.user
-        });
-    }
-
-    return res.redirect('/user/signin');
-})
-
-router.post('/', upload.single("coverImage") , async (req, res) => {
-    // console.log(req.body);
-    // console.log(req.file);
+// CREATE BLOG (CLOUDINARY VERSION)
+router.post("/", upload.single("coverImage"), async (req, res) => {
+  try {
     const { title, body } = req.body;
-    const blog = await Blog.create({
-        title,
-        body,
-        createdBy: req.user._id,
-        coverImage: `/blogCoverImages/${req.file.filename}`
-    })
-    // console.log(blog);
-    res.redirect(`/blog/${blog._id}`);
-})
 
-router.get('/:blogId', async (req, res) => {
-    const blog = await Blog.findById(req.params.blogId).populate('createdBy');
-    const comments = await Comment.find({ blogId: req.params.blogId}).populate('commentedBy').sort({createdAt: -1});
-    // console.log(comments);
-    return res.render('blog', {
-        blog,
-        comments,
-        user: req.user
-    })
-})
+    let imageURL = "";
 
-// comments
-router.post('/comment/:blogId', async (req, res) => {
-    const { content } = req.body;
-    const blogId = req.params.blogId;
-    const commentedBy = req.user._id;
-    const comment = await Comment.create({
-        content,
-        commentedBy,
-        blogId,
-    });
-    // console.log(comment);
-    return res.redirect(`/blog/${req.params.blogId}`);
-})
-
-// delete blog from user profile page
-router.delete('/:blogId', async (req, res) => {
-    const blogToBeDeleted = req.params.blogId;
-    console.log(blogToBeDeleted);
-    try {
-        const result = await Blog.deleteOne({ _id: blogToBeDeleted });
-
-        if (result.deletedCount > 0) {
-            console.log('route: deleted successfully');
-            res.status(200).json({ message: 'Blog deleted successfully' });
-        } else {
-            console.log('no matching blog found');
-            res.status(404).json({ message: 'No matching blog found' });
-        }
-    } catch (error) {
-        console.log('catch block of delete blog route: ', error);
-        res.status(500).json({ message: 'Internal server error' });
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path);
+      imageURL = result.secure_url;
     }
-})
+
+    const blog = await Blog.create({
+      title,
+      body,
+      createdBy: req.user._id,
+      coverImage: imageURL,
+    });
+
+    return res.redirect(`/blog/${blog._id}`);
+  } catch (error) {
+    console.error("BLOG CREATE ERROR:", error);
+    return res.status(500).send("Internal Server Error");
+  }
+});
+
+// VIEW BLOG
+router.get("/:blogId", async (req, res) => {
+  try {
+    const blog = await Blog.findById(req.params.blogId).populate("createdBy");
+
+    const comments = await Comment.find({
+      blogId: req.params.blogId,
+    })
+      .populate("commentedBy")
+      .sort({ createdAt: -1 });
+
+    return res.render("blog", {
+      blog,
+      comments,
+      user: req.user,
+    });
+  } catch (error) {
+    console.error("BLOG FETCH ERROR:", error);
+    return res.status(500).send("Internal Server Error");
+  }
+});
+
+// ADD COMMENT
+router.post("/comment/:blogId", async (req, res) => {
+  try {
+    const { content } = req.body;
+
+    await Comment.create({
+      content,
+      commentedBy: req.user._id,
+      blogId: req.params.blogId,
+    });
+
+    return res.redirect(`/blog/${req.params.blogId}`);
+  } catch (error) {
+    console.error("COMMENT ERROR:", error);
+    return res.status(500).send("Internal Server Error");
+  }
+});
+
+// DELETE BLOG
+router.delete("/:blogId", async (req, res) => {
+  try {
+    const result = await Blog.deleteOne({ _id: req.params.blogId });
+
+    if (result.deletedCount > 0) {
+      return res.status(200).json({ message: "Blog deleted successfully" });
+    } else {
+      return res.status(404).json({ message: "No matching blog found" });
+    }
+  } catch (error) {
+    console.error("DELETE ERROR:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 module.exports = router;
