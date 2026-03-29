@@ -7,7 +7,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
-  "author": "Yogesh Kanwade",
+  "author": "Kshitij ",
   "license": "ISC",
   "dependencies": {
     "cloudinary": "^2.9.0",
